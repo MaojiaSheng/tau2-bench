@@ -3,7 +3,7 @@ import re
 from typing import Any, Optional
 
 import litellm
-from litellm import completion, completion_cost
+from litellm import completion, completion_cost, responses
 from litellm.caching.caching import Cache
 from litellm.main import ModelResponse, Usage
 from loguru import logger
@@ -11,6 +11,7 @@ from loguru import logger
 from tau2.config import (
     DEFAULT_LLM_CACHE_TYPE,
     DEFAULT_MAX_RETRIES,
+    DEFAULT_LLM_API_TYPE,
     LLM_CACHE_ENABLED,
     REDIS_CACHE_TTL,
     REDIS_CACHE_VERSION,
@@ -205,10 +206,37 @@ def generate(
     tools = [tool.openai_schema for tool in tools] if tools else None
     if tools and tool_choice is None:
         tool_choice = "auto"
+    if DEFAULT_LLM_API_TYPE == "completion":
+        message = _completion_api_call(
+            model=model,
+            messages=litellm_messages,
+            tools=tools,
+            tool_choice=tool_choice,
+            **kwargs,
+        )
+    elif DEFAULT_LLM_API_TYPE == "responses":
+        message = _responses_api_call(
+            model=model,
+            messages=litellm_messages,
+            tools=tools,
+            tool_choice=tool_choice,
+            **kwargs,
+        )
+    else:
+        raise ValueError(f"Unknown LLM API type: {DEFAULT_LLM_API_TYPE}")
+    return message
+
+def _completion_api_call(
+    model: str,
+    messages: list[dict],
+    tools: Optional[list[dict]] = None,
+    tool_choice: Optional[str] = None,
+    **kwargs: Any,
+) -> AssistantMessage:
     try:
         response = completion(
             model=model,
-            messages=litellm_messages,
+            messages=messages,
             tools=tools,
             tool_choice=tool_choice,
             **kwargs,
@@ -251,6 +279,64 @@ def generate(
     )
     return message
 
+def _responses_api_call(
+    model: str,
+    messages: list[dict],
+    tools: Optional[list[dict]] = None,
+    tool_choice: Optional[str] = None,
+    **kwargs: Any,
+) -> AssistantMessage:
+    try:
+        response = responses(
+            model=model,
+            input=messages,
+            tools=tools,
+            tool_choice=tool_choice,
+            **kwargs,
+        )
+    except Exception as e:
+        logger.error(e)
+        raise e
+    
+    # 获取成本和使用情况
+    cost = get_response_cost(response)
+    usage = get_response_usage(response)
+    
+    # 解析输出内容
+    content = None
+    tool_calls = []
+    
+    # 遍历output数组，查找message和function_call类型的输出
+    for output_item in response.output:
+        if output_item.type == "message":
+            # 提取消息内容
+            if output_item.content and isinstance(output_item.content, list):
+                for content_item in output_item.content:
+                    if hasattr(content_item, 'type') and content_item.type == "output_text":
+                        content = content_item.text
+                        break
+        elif output_item.type == "function_call":
+            # 提取工具调用信息
+            tool_call = ToolCall(
+                id=output_item.id,
+                name=output_item.name,
+                arguments=json.loads(output_item.arguments) if output_item.arguments else {},
+            )
+            tool_calls.append(tool_call)
+    
+    # 如果没有工具调用，设为None
+    tool_calls = tool_calls or None
+    
+    # 创建AssistantMessage对象
+    message = AssistantMessage(
+        role="assistant",
+        content=content,
+        tool_calls=tool_calls,
+        cost=cost,
+        usage=usage,
+        raw_data=response.__dict__,
+    )
+    return message
 
 def get_cost(messages: list[Message]) -> tuple[float, float] | None:
     """
