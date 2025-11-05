@@ -105,11 +105,16 @@ def get_response_usage(response: ModelResponse) -> Optional[dict]:
     usage: Optional[Usage] = response.get("usage")
     if usage is None:
         return None
-    return {
-        "completion_tokens": usage.completion_tokens,
-        "prompt_tokens": usage.prompt_tokens,
-    }
-
+    if hasattr(usage, "completion_tokens"):
+        return {
+            "completion_tokens": usage.completion_tokens,
+            "prompt_tokens": usage.prompt_tokens,
+        }
+    else:
+        return {
+            "completion_tokens": usage.output_tokens,
+            "prompt_tokens": usage.input_tokens,
+        }
 
 def to_tau2_messages(
     messages: list[dict], ignore_roles: set[str] = set()
@@ -144,37 +149,69 @@ def to_litellm_messages(messages: list[Message]) -> list[dict]:
         if isinstance(message, UserMessage):
             litellm_messages.append({"role": "user", "content": message.content})
         elif isinstance(message, AssistantMessage):
-            tool_calls = None
-            if message.is_tool_call():
-                tool_calls = [
-                    {
-                        "id": tc.id,
-                        "name": tc.name,
-                        "function": {
+            if DEFAULT_LLM_API_TYPE == "completion":
+                tool_calls = None
+                if message.is_tool_call():
+                    tool_calls = [
+                        {
+                            "id": tc.id,
                             "name": tc.name,
-                            "arguments": json.dumps(tc.arguments),
-                        },
-                        "type": "function",
+                            "function": {
+                                "name": tc.name,
+                                "arguments": json.dumps(tc.arguments),
+                            },
+                            "type": "function",
+                        }
+                        for tc in message.tool_calls
+                    ]
+                litellm_messages.append(
+                    {
+                        "role": "assistant",
+                        "content": message.content,
+                        "tool_calls": tool_calls,
                     }
-                    for tc in message.tool_calls
-                ]
-            litellm_messages.append(
-                {
-                    "role": "assistant",
-                    "content": message.content,
-                    "tool_calls": tool_calls,
-                }
-            )
+                )
+            else:
+                # 实现responses API的AssistantMessage支持
+                if message.is_tool_call() and message.tool_calls:
+                    for tc in message.tool_calls:
+                        litellm_messages.append({
+                            "arguments": json.dumps(tc.arguments),
+                            "call_id": tc.id,
+                            "name": tc.name,
+                            "type": "function_call"
+                        })
+                elif message.content:
+                    litellm_messages.append({
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": message.content
+                            }
+                        ]
+                    })
         elif isinstance(message, ToolMessage):
-            litellm_messages.append(
-                {
-                    "role": "tool",
-                    "content": message.content,
-                    "tool_call_id": message.id,
-                }
-            )
+            if DEFAULT_LLM_API_TYPE == "completion":
+                litellm_messages.append(
+                    {
+                        "role": "tool",
+                        "content": message.content,
+                        "tool_call_id": message.id,
+                    }
+                )
+            else:
+                # 实现responses API的ToolMessage支持
+                litellm_messages.append({
+                    "type": "function_call_output",
+                    "call_id": message.id,
+                    "output": message.content
+                })
         elif isinstance(message, SystemMessage):
             litellm_messages.append({"role": "system", "content": message.content})
+    # logger.info(f"to_litellm_messages messages: {messages}")
+    # logger.info(f"to_litellm_messages litellm_messages: {litellm_messages}")
     return litellm_messages
 
 
@@ -298,8 +335,8 @@ def _responses_api_call(
         logger.error(e)
         raise e
     
-    # 获取成本和使用情况
-    cost = get_response_cost(response)
+    # FIXME: 获取成本和使用情况
+    cost = 0.0
     usage = get_response_usage(response)
     
     # 解析输出内容
@@ -307,6 +344,7 @@ def _responses_api_call(
     tool_calls = []
     
     # 遍历output数组，查找message和function_call类型的输出
+    # logger.info(f"_responses_api_call response.output: {response.output}")
     for output_item in response.output:
         if output_item.type == "message":
             # 提取消息内容
