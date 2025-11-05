@@ -305,7 +305,7 @@ def _completion_api_call(
         for tool_call in tool_calls
     ]
     tool_calls = tool_calls or None
-
+    logger.info(f"_completion_api_call tool_calls: {tool_calls}")
     message = AssistantMessage(
         role="assistant",
         content=content,
@@ -364,6 +364,7 @@ def _responses_api_call(
     
     # 如果没有工具调用，设为None
     tool_calls = tool_calls or None
+    logger.info(f"_responses_api_call tool_calls: {tool_calls}")
     
     # 创建AssistantMessage对象
     message = AssistantMessage(
