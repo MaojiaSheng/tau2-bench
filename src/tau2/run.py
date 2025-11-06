@@ -125,9 +125,8 @@ def run_domain(config: RunConfig) -> Results:
 
     num_trials = config.num_trials
     save_to = config.save_to
-    if save_to is None:
-        save_to = make_run_name(config)
-    save_to = DATA_DIR / "simulations" / f"{save_to}.json"
+    if save_to is not None:
+        save_to = DATA_DIR / "simulations" / f"{save_to}.json"
     simulation_results = run_tasks(
         domain=config.domain,
         tasks=tasks,
