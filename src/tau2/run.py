@@ -350,7 +350,9 @@ def run_tasks(
                 ConsoleDisplay.display_simulation(simulation, show_details=False)
             _save(simulation)
         except Exception as e:
+            import traceback
             logger.error(f"Error running task {task.id}, trial {trial}: {e}")
+            logger.error(traceback.format_exc())
             raise e
         return simulation
 

@@ -1,7 +1,7 @@
 import json
 import re
 from typing import Any, Optional
-
+import uuid
 import litellm
 from litellm import completion, completion_cost, responses
 from litellm.caching.caching import Cache
@@ -140,80 +140,96 @@ def to_tau2_messages(
     return tau2_messages
 
 
-def to_litellm_messages(messages: list[Message]) -> list[dict]:
+def to_litellm_messages_completion(messages: list[Message]) -> list[dict]:
     """
-    Convert a list of Tau2 messages to a list of litellm messages.
+    Convert a list of Tau2 messages to a list of litellm messages for completion API.
     """
     litellm_messages = []
     for message in messages:
         if isinstance(message, UserMessage):
-            litellm_messages.append({"role": "user", "content": message.content})
+            litellm_messages.append(
+                {
+                    "role": "user",
+                    "content": message.content
+                }
+            )
         elif isinstance(message, AssistantMessage):
-            if DEFAULT_LLM_API_TYPE == "completion":
-                tool_calls = None
-                if message.is_tool_call():
-                    tool_calls = [
-                        {
-                            "id": tc.id,
-                            "name": tc.name,
-                            "function": {
-                                "name": tc.name,
-                                "arguments": json.dumps(tc.arguments),
-                            },
-                            "type": "function",
-                        }
-                        for tc in message.tool_calls
-                    ]
-                litellm_messages.append(
+            tool_calls = None
+            if message.is_tool_call():
+                tool_calls = [
                     {
-                        "role": "assistant",
-                        "content": message.content,
-                        "tool_calls": tool_calls,
-                    }
-                )
-            else:
-                # 实现responses API的AssistantMessage支持
-                if message.is_tool_call() and message.tool_calls:
-                    for tc in message.tool_calls:
-                        litellm_messages.append({
+                        "id": tc.id,
+                        "name": tc.name,
+                        "function": {
+                            "name": tc.name,
                             "arguments": json.dumps(tc.arguments),
-                            "call_id": tc.id,
-                            "name": tc.name,
-                            "type": "function_call"
-                        })
-                elif message.content:
-                    litellm_messages.append({
-                        "type": "message",
-                        "role": "assistant",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": message.content
-                            }
-                        ]
-                    })
-        elif isinstance(message, ToolMessage):
-            if DEFAULT_LLM_API_TYPE == "completion":
-                litellm_messages.append(
-                    {
-                        "role": "tool",
-                        "content": message.content,
-                        "tool_call_id": message.id,
+                        },
+                        "type": "function",
                     }
-                )
-            else:
-                # 实现responses API的ToolMessage支持
-                litellm_messages.append({
-                    "type": "function_call_output",
-                    "call_id": message.id,
-                    "output": message.content
-                })
+                    for tc in message.tool_calls
+                ]
+            litellm_messages.append(
+                {
+                    "role": "assistant",
+                    "content": message.content,
+                    "tool_calls": tool_calls,
+                }
+            )
+        elif isinstance(message, ToolMessage):
+            litellm_messages.append(
+                {
+                    "role": "tool",
+                    "content": message.content,
+                    "tool_call_id": message.id,
+                }
+            )
         elif isinstance(message, SystemMessage):
             litellm_messages.append({"role": "system", "content": message.content})
-    # logger.info(f"to_litellm_messages messages: {messages}")
-    # logger.info(f"to_litellm_messages litellm_messages: {litellm_messages}")
     return litellm_messages
 
+
+def to_litellm_messages_responses(messages: list[Message]) -> list[dict]:
+    """
+    Convert a list of Tau2 messages to a list of litellm messages for responses API.
+    """
+    litellm_messages = []
+    for message in messages:
+        if isinstance(message, UserMessage):
+            litellm_messages.append({
+                "type": "message",
+                "role": "user",
+                "content": message.content
+            })
+        elif isinstance(message, AssistantMessage):
+            # 实现responses API的AssistantMessage支持
+            if message.is_tool_call() and message.tool_calls:
+                for tc in message.tool_calls:
+                    litellm_messages.append({
+                        "arguments": json.dumps(tc.arguments),
+                        "call_id": tc.id,
+                        "name": tc.name,
+                        "type": "function_call",
+                    })
+            elif message.content:
+                litellm_messages.append({
+                    "type": "message",
+                    "role": "assistant",
+                    "content": message.content
+                })
+        elif isinstance(message, ToolMessage):
+            # 实现responses API的ToolMessage支持
+            litellm_messages.append({
+                "type": "function_call_output",
+                "call_id": message.id,
+                "output": message.content,
+            })
+        elif isinstance(message, SystemMessage):
+            litellm_messages.append({
+                "type": "message",
+                "role": "system",
+                "content": message.content
+            })
+    return litellm_messages
 
 def generate(
     model: str,
@@ -239,10 +255,10 @@ def generate(
 
     if model.startswith("claude") and not ALLOW_SONNET_THINKING:
         kwargs["thinking"] = {"type": "disabled"}
-    litellm_messages = to_litellm_messages(messages)
     if tools and tool_choice is None:
         tool_choice = "auto"
     if DEFAULT_LLM_API_TYPE == "completion":
+        litellm_messages = to_litellm_messages_completion(messages)
         tools = [tool.openai_schema for tool in tools] if tools else None
         message = _completion_api_call(
             model=model,
@@ -252,6 +268,7 @@ def generate(
             **kwargs,
         )
     elif DEFAULT_LLM_API_TYPE == "responses":
+        litellm_messages = to_litellm_messages_responses(messages)
         tools = [tool.responses_schema for tool in tools] if tools else None
         message = _responses_api_call(
             model=model,
@@ -333,7 +350,7 @@ def _responses_api_call(
             **kwargs,
         )
     except Exception as e:
-        logger.error(e)
+        logger.error(f"_responses_api_call error: {e}, {messages}")
         raise e
     
     # FIXME: 获取成本和使用情况
@@ -347,7 +364,18 @@ def _responses_api_call(
     # 遍历output数组，查找message和function_call类型的输出
     # logger.info(f"_responses_api_call response.output: {response.output}")
     for output_item in response.output:
-        if output_item.type == "message":
+        # logger.info(f"_responses_api_call output_item: {output_item}")
+        if isinstance(output_item, dict):
+            # for fallback cases
+            if output_item.get("type") == "message":
+                if output_item.get("content") and isinstance(output_item.get("content"), list):
+                    for content_item in output_item.get("content"):
+                        if content_item.get('type') == "output_text":
+                            content = content_item.get("text")
+                            break
+            else:
+                logger.warning(f"_responses_api_call output_item: {output_item} is not a message type")
+        elif output_item.type == "message":
             # 提取消息内容
             if output_item.content and isinstance(output_item.content, list):
                 for content_item in output_item.content:
@@ -362,7 +390,11 @@ def _responses_api_call(
                 arguments=json.loads(output_item.arguments) if output_item.arguments else {},
             )
             tool_calls.append(tool_call)
-    
+        elif output_item.type == "reasoning":
+            pass
+        else:
+            logger.warning(f"_responses_api_call output_item: {output_item} is not a message, function_call, or reasoning type")
+
     # 如果没有工具调用，设为None
     tool_calls = tool_calls or None
     logger.info(f"_responses_api_call tool_calls: {tool_calls}")
