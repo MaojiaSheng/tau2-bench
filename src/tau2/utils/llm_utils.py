@@ -362,7 +362,6 @@ def _responses_api_call(
     tool_calls = []
     
     # 遍历output数组，查找message和function_call类型的输出
-    # logger.info(f"_responses_api_call response.output: {response.output}")
     for output_item in response.output:
         # logger.info(f"_responses_api_call output_item: {output_item}")
         if isinstance(output_item, dict):
@@ -397,8 +396,9 @@ def _responses_api_call(
 
     # 如果没有工具调用，设为None
     tool_calls = tool_calls or None
-    logger.info(f"_responses_api_call tool_calls: {tool_calls}")
-    
+    # logger.info(f"_responses_api_call tool_calls: {tool_calls}")
+    if not content and not tool_calls:
+        logger.error(f"_responses_api_call response.output: {response.output}, no content and no tool_calls")
     # 创建AssistantMessage对象
     message = AssistantMessage(
         role="assistant",
