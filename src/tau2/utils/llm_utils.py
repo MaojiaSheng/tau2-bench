@@ -240,10 +240,10 @@ def generate(
     if model.startswith("claude") and not ALLOW_SONNET_THINKING:
         kwargs["thinking"] = {"type": "disabled"}
     litellm_messages = to_litellm_messages(messages)
-    tools = [tool.openai_schema for tool in tools] if tools else None
     if tools and tool_choice is None:
         tool_choice = "auto"
     if DEFAULT_LLM_API_TYPE == "completion":
+        tools = [tool.openai_schema for tool in tools] if tools else None
         message = _completion_api_call(
             model=model,
             messages=litellm_messages,
@@ -252,6 +252,7 @@ def generate(
             **kwargs,
         )
     elif DEFAULT_LLM_API_TYPE == "responses":
+        tools = [tool.responses_schema for tool in tools] if tools else None
         message = _responses_api_call(
             model=model,
             messages=litellm_messages,

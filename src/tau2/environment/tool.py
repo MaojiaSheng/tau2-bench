@@ -26,6 +26,12 @@ class BaseTool(BaseModel, ABC):
         """Get the OpenAI schema of the tool."""
         raise NotImplementedError
 
+    @property
+    @abstractmethod
+    def responses_schema(self) -> Dict[str, Any]:
+        """Get the responses schema of the tool."""
+        raise NotImplementedError
+
     @abstractmethod
     def _call(self, *args: Any, **kwargs: Any) -> Any:
         raise NotImplementedError
@@ -146,6 +152,17 @@ class Tool(BaseTool):
                 "description": self._get_description(),
                 "parameters": self.params.model_json_schema(),
             },
+        }
+
+    @override
+    @property
+    def responses_schema(self) -> Dict[str, Any]:
+        """Get the responses schema of the tool."""
+        return {
+            "type": "function",
+            "name": self.name,
+            "description": self._get_description(),
+            "parameters": self.params.model_json_schema(),
         }
 
     def to_str(self) -> str:
