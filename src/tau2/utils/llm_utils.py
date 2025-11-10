@@ -323,7 +323,7 @@ def _completion_api_call(
         for tool_call in tool_calls
     ]
     tool_calls = tool_calls or None
-    logger.info(f"_completion_api_call tool_calls: {tool_calls}")
+    # logger.info(f"_completion_api_call tool_calls: {tool_calls}")
     message = AssistantMessage(
         role="assistant",
         content=content,
@@ -356,14 +356,12 @@ def _responses_api_call(
     # FIXME: 获取成本和使用情况
     cost = 0.0
     usage = get_response_usage(response)
-    
-    # 解析输出内容
     content = None
     tool_calls = []
     
-    # 遍历output数组，查找message和function_call类型的输出
+    # Iterate through the output array to find outputs of the message and function_call types
     for output_item in response.output:
-        # logger.info(f"_responses_api_call output_item: {output_item}")
+        logger.info(f"_responses_api_call output_item: {output_item}")
         if isinstance(output_item, dict):
             # for fallback cases
             if output_item.get("type") == "message":
@@ -384,7 +382,7 @@ def _responses_api_call(
         elif output_item.type == "function_call":
             # 提取工具调用信息
             tool_call = ToolCall(
-                id=output_item.id,
+                id=output_item.call_id,
                 name=output_item.name,
                 arguments=json.loads(output_item.arguments) if output_item.arguments else {},
             )

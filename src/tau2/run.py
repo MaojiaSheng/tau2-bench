@@ -346,7 +346,7 @@ def run_tasks(
             )
             simulation.trial = trial
             if console_display:
-                ConsoleDisplay.display_simulation(simulation, show_details=False)
+                ConsoleDisplay.display_simulation(simulation, show_details=True)
             _save(simulation)
         except Exception as e:
             import traceback
