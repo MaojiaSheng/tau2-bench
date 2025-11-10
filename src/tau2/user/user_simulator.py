@@ -160,6 +160,7 @@ class UserSimulator(BaseUser):
             messages=messages,
             tools=self.tools,
             **self.llm_args,
+            is_agent=False
         )
 
         user_response = assistant_message.content

@@ -116,6 +116,7 @@ class NLAssertionsEvaluator:
             model=DEFAULT_LLM_NL_ASSERTIONS,
             messages=messages,
             **DEFAULT_LLM_NL_ASSERTIONS_ARGS,
+            is_agent=False
         )
         result_data = json.loads(assistant_message.content)
         return [

@@ -29,7 +29,7 @@ DEFAULT_LLM_ENV_INTERFACE_ARGS = {"temperature": DEFAULT_LLM_ENV_INTERFACE_TEMPE
 DEFAULT_MAX_RETRIES = 3
 LLM_CACHE_ENABLED = False
 DEFAULT_LLM_CACHE_TYPE = "redis"
-DEFAULT_LLM_API_TYPE = "responses" # responses or completion
+AGENT_LLM_API_TYPE = "responses" # responses or completion
 
 # REDIS CACHE
 REDIS_HOST = "localhost"

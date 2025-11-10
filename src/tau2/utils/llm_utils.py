@@ -1,5 +1,6 @@
 import json
 import re
+import os
 from typing import Any, Optional
 import uuid
 import litellm
@@ -11,7 +12,7 @@ from loguru import logger
 from tau2.config import (
     DEFAULT_LLM_CACHE_TYPE,
     DEFAULT_MAX_RETRIES,
-    DEFAULT_LLM_API_TYPE,
+    AGENT_LLM_API_TYPE,
     LLM_CACHE_ENABLED,
     REDIS_CACHE_TTL,
     REDIS_CACHE_VERSION,
@@ -96,7 +97,7 @@ def get_response_cost(response: ModelResponse) -> float:
     try:
         cost = completion_cost(completion_response=response)
     except Exception as e:
-        logger.warning(e)
+        # logger.warning(e)
         return 0.0
     return cost
 
@@ -236,6 +237,7 @@ def generate(
     messages: list[Message],
     tools: Optional[list[Tool]] = None,
     tool_choice: Optional[str] = None,
+    is_agent: bool = False,
     **kwargs: Any,
 ) -> UserMessage | AssistantMessage:
     """
@@ -255,9 +257,13 @@ def generate(
 
     if model.startswith("claude") and not ALLOW_SONNET_THINKING:
         kwargs["thinking"] = {"type": "disabled"}
+
     if tools and tool_choice is None:
         tool_choice = "auto"
-    if DEFAULT_LLM_API_TYPE == "completion":
+
+    if AGENT_LLM_API_TYPE == "completion" or not is_agent:
+        # user simulator must use completion API
+        api_base = os.environ["USER_API_BASE"]
         litellm_messages = to_litellm_messages_completion(messages)
         tools = [tool.openai_schema for tool in tools] if tools else None
         message = _completion_api_call(
@@ -265,9 +271,11 @@ def generate(
             messages=litellm_messages,
             tools=tools,
             tool_choice=tool_choice,
+            api_base=api_base,
             **kwargs,
         )
-    elif DEFAULT_LLM_API_TYPE == "responses":
+    elif AGENT_LLM_API_TYPE == "responses":
+        api_base = os.environ["AGENT_API_BASE"]
         litellm_messages = to_litellm_messages_responses(messages)
         tools = [tool.responses_schema for tool in tools] if tools else None
         message = _responses_api_call(
@@ -275,10 +283,11 @@ def generate(
             messages=litellm_messages,
             tools=tools,
             tool_choice=tool_choice,
+            api_base=api_base,
             **kwargs,
         )
     else:
-        raise ValueError(f"Unknown LLM API type: {DEFAULT_LLM_API_TYPE}")
+        raise ValueError(f"Unknown LLM API type: {AGENT_LLM_API_TYPE}")
     return message
 
 def _completion_api_call(
@@ -286,14 +295,17 @@ def _completion_api_call(
     messages: list[dict],
     tools: Optional[list[dict]] = None,
     tool_choice: Optional[str] = None,
+    api_base: Optional[str] = None,
     **kwargs: Any,
 ) -> AssistantMessage:
     try:
+        logger.info(f"_completion_api_call model: {model}, api_base: {api_base}, kwargs: {kwargs}")
         response = completion(
             model=model,
             messages=messages,
             tools=tools,
             tool_choice=tool_choice,
+            api_base=api_base,
             **kwargs,
         )
     except Exception as e:
@@ -339,14 +351,17 @@ def _responses_api_call(
     messages: list[dict],
     tools: Optional[list[dict]] = None,
     tool_choice: Optional[str] = None,
+    api_base: Optional[str] = None,
     **kwargs: Any,
 ) -> AssistantMessage:
     try:
+        logger.info(f"_responses_api_call model: {model}, api_base: {api_base}, kwargs: {kwargs}")
         response = responses(
             model=model,
             input=messages,
             tools=tools,
             tool_choice=tool_choice,
+            api_base=api_base,
             **kwargs,
         )
     except Exception as e:
@@ -354,8 +369,8 @@ def _responses_api_call(
         raise e
     
     # FIXME: 获取成本和使用情况
-    cost = 0.0
     usage = get_response_usage(response)
+    cost = 0.0
     content = None
     tool_calls = []
     
