@@ -175,6 +175,71 @@ class ConsoleDisplay:
             simulation: The simulation object to display
             show_details: Whether to show detailed information
         """
+        # Create messages table
+        if simulation.messages:
+            table = Table(
+                title="Messages",
+                show_header=True,
+                header_style="bold magenta",
+                show_lines=True,  # Add horizontal lines between rows
+            )
+            table.add_column("Role", style="cyan", no_wrap=True)
+            table.add_column("Content", style="green")
+            table.add_column("Details", style="yellow")
+            table.add_column("Turn", style="yellow", no_wrap=True)
+
+            current_turn = None
+            for msg in simulation.messages:
+                content = msg.content if msg.content is not None else ""
+                details = ""
+
+                # Set different colors based on message type
+                if isinstance(msg, AssistantMessage):
+                    role_style = "bold blue"
+                    content_style = "blue"
+                    tool_style = "bright_blue"  # Lighter shade of blue
+                elif isinstance(msg, UserMessage):
+                    role_style = "bold green"
+                    content_style = "green"
+                    tool_style = "bright_green"  # Lighter shade of green
+                elif isinstance(msg, ToolMessage):
+                    # For tool messages, use the color of the requestor's tool style
+                    if msg.requestor == "user":
+                        role_style = "bold green"
+                        content_style = "bright_green"  # Match user's tool style
+                    else:  # assistant
+                        role_style = "bold blue"
+                        content_style = "bright_blue"  # Match assistant's tool style
+                else:  # SystemMessage
+                    role_style = "bold magenta"
+                    content_style = "magenta"
+
+                if isinstance(msg, AssistantMessage) or isinstance(msg, UserMessage):
+                    if msg.tool_calls:
+                        tool_calls = []
+                        for tool in msg.tool_calls:
+                            tool_calls.append(
+                                f"[{tool_style}]Tool: {tool.name}[/]\n[{tool_style}]Args: {json.dumps(tool.arguments, indent=2)}[/]"
+                            )
+                        details = "\n".join(tool_calls)
+                elif isinstance(msg, ToolMessage):
+                    details = f"[{content_style}]Tool ID: {msg.id}. Requestor: {msg.requestor}[/]"
+                    if msg.error:
+                        details += " [bold red](Error)[/]"
+
+                # Add empty row between turns
+                if current_turn is not None and msg.turn_idx != current_turn:
+                    table.add_row("", "", "", "")
+                current_turn = msg.turn_idx
+
+                table.add_row(
+                    f"[{role_style}]{msg.role}[/]",
+                    f"[{content_style}]{content}[/]",
+                    details,
+                    str(msg.turn_idx) if msg.turn_idx is not None else "",
+                )
+            if show_details:
+                cls.console.print(table)
         # Create main simulation info panel
         sim_info = Text()
         if show_details:
@@ -264,72 +329,6 @@ class ConsoleDisplay:
         cls.console.print(
             Panel(sim_info, title="Simulation Overview", border_style="blue")
         )
-
-        # Create messages table
-        if simulation.messages:
-            table = Table(
-                title="Messages",
-                show_header=True,
-                header_style="bold magenta",
-                show_lines=True,  # Add horizontal lines between rows
-            )
-            table.add_column("Role", style="cyan", no_wrap=True)
-            table.add_column("Content", style="green")
-            table.add_column("Details", style="yellow")
-            table.add_column("Turn", style="yellow", no_wrap=True)
-
-            current_turn = None
-            for msg in simulation.messages:
-                content = msg.content if msg.content is not None else ""
-                details = ""
-
-                # Set different colors based on message type
-                if isinstance(msg, AssistantMessage):
-                    role_style = "bold blue"
-                    content_style = "blue"
-                    tool_style = "bright_blue"  # Lighter shade of blue
-                elif isinstance(msg, UserMessage):
-                    role_style = "bold green"
-                    content_style = "green"
-                    tool_style = "bright_green"  # Lighter shade of green
-                elif isinstance(msg, ToolMessage):
-                    # For tool messages, use the color of the requestor's tool style
-                    if msg.requestor == "user":
-                        role_style = "bold green"
-                        content_style = "bright_green"  # Match user's tool style
-                    else:  # assistant
-                        role_style = "bold blue"
-                        content_style = "bright_blue"  # Match assistant's tool style
-                else:  # SystemMessage
-                    role_style = "bold magenta"
-                    content_style = "magenta"
-
-                if isinstance(msg, AssistantMessage) or isinstance(msg, UserMessage):
-                    if msg.tool_calls:
-                        tool_calls = []
-                        for tool in msg.tool_calls:
-                            tool_calls.append(
-                                f"[{tool_style}]Tool: {tool.name}[/]\n[{tool_style}]Args: {json.dumps(tool.arguments, indent=2)}[/]"
-                            )
-                        details = "\n".join(tool_calls)
-                elif isinstance(msg, ToolMessage):
-                    details = f"[{content_style}]Tool ID: {msg.id}. Requestor: {msg.requestor}[/]"
-                    if msg.error:
-                        details += " [bold red](Error)[/]"
-
-                # Add empty row between turns
-                if current_turn is not None and msg.turn_idx != current_turn:
-                    table.add_row("", "", "", "")
-                current_turn = msg.turn_idx
-
-                table.add_row(
-                    f"[{role_style}]{msg.role}[/]",
-                    f"[{content_style}]{content}[/]",
-                    details,
-                    str(msg.turn_idx) if msg.turn_idx is not None else "",
-                )
-            if show_details:
-                cls.console.print(table)
 
     @classmethod
     def display_agent_metrics(cls, metrics: AgentMetrics):
